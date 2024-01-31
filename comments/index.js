@@ -1,44 +1,66 @@
-const express = require('express')
-const bodyParser = require('body-parser')
-const axios = require('axios')
-const { randomBytes } = require('crypto')
-const cors = require('cors')
+const express = require('express');
+const bodyParser = require('body-parser');
+const axios = require('axios');
+const { randomBytes } = require('crypto');
+const cors = require('cors');
 
-const app = express()
-app.use(bodyParser.json())
-app.use(cors())
+const app = express();
+app.use(bodyParser.json());
+app.use(cors());
 
-const commentPostById = {}
+const commentPostById = {};
 
 app.get('/posts/:id/comments', (req, res) => {
-    res.send(commentPostById[req.params.id] || [])
+    res.send(commentPostById[req.params.id] || []);
 })
-app.post('/posts/:id/comments', (req, res) => {
-    const commentId = randomBytes(4).toString('hex')
-    const { content } = req.body
+app.post('/posts/:id/comments', async (req, res) => {
+    const commentId = randomBytes(4).toString('hex');
+    const { content } = req.body;
 
-    const comments = commentPostById[req.params.id] || []
+    const comments = commentPostById[req.params.id] || [];
 
-    comments.push({ id: commentId, content })
+    comments.push({ id: commentId, content, status: 'pending' });
 
-    commentPostById[req.params.id] = comments
+    commentPostById[req.params.id] = comments;
 
-    axios.post('http://localhost:5005/events', {
+    await axios.post('http://localhost:5005/events', {
         type: 'CommentCreated',
         data: {
             id: commentId,
             content,
-            postId: req.params.id
+            postId: req.params.id,
+            status: 'pending'
         }
-    })
-    res.status(201).send(comments)
+    });
+    res.status(201).send(comments);
 })
-app.post('/events', (req, res) => {
-    console.log('Event Received:', req.body.type)
+app.post('/events', async (req, res) => {
+    console.log('Event Received:', req.body.type);
 
-    res.send({})
+    const {type, data} = req.body;
+    if (type === 'CommentModerated') {
+        const {postId, id, status, content} = data;
+        const comments = commentPostById[postId];
+
+        const comment = comments.find((comment) => {
+            return comment.id === id;
+        })
+        comment.status = status;
+
+        await axios.post('http://localhost:5005/events', {
+            type: 'CommentUpdated',
+            data: {
+                id,
+                status,
+                postId,
+                content
+            }
+        });
+    };
+
+    res.send({});
 })
 
 app.listen(5001, () => {
-    console.log('listening on port 5001')
+    console.log('listening on port 5001');
 })
